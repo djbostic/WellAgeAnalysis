@@ -14,7 +14,7 @@ gsps_sp <- as_Spatial(gsps)
 
 basins <- gsps %>% group_by(BASIN) %>%  st_buffer(100) %>% summarise(geometry = st_union(geometry))
 
-# dacs
+# dacs+
 dacs <- st_read("Boundaries/census_data_disadvantaged_communities_2018/DAC_Pl18.shp") %>% filter(DAC18 == "Y") %>% st_transform(., merc) %>% mutate(area = st_area(.))
 
 dcs <- st_intersection(dacs, gsps)
