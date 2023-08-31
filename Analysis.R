@@ -9,49 +9,92 @@ library(lubridate)
 options(timeout=1000)
 
 # load data
+# set coordinate reference system
+merc <- crs("+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0
+            +k=1.0 +units=m +nadgrids=@null +no_defs")
+# ca
+ca <- st_read("Data/Boundaries/cb_2018_us_state_500k/cb_2018_us_state_500k.shp") %>% filter(STUSPS == "CA") %>% st_transform(., crs=merc)
+
+# gsps
+allgwbasins <- st_read("Data/Boundaries/i08_B118_CA_GroundwaterBasins/i08_B118_CA_GroundwaterBasins.shp") %>% st_transform(., crs=merc)
+
+sgmabasins <- st_read("Data/Boundaries/GSP_submitted/GSA_Master.shp") %>% st_transform(., crs=merc)
+gspcoda <- read_csv("Data/Boundaries/gsp_coda.csv") %>% mutate(GSP.ID = as.character(GSP.ID))
+gsps <- left_join(sgmabasins, gspcoda, by="GSP.ID")
+gsps <- filter(gsps, is.na(GSP.NAME)==FALSE)
+gsps <- st_transform(gsps, crs=merc)
+gsps$gsp_area <- st_area(gsps)
+gsps_sp <- as_Spatial(gsps)
+
+basins <- gsps %>% group_by(BASIN) %>%  st_buffer(100) %>% summarise(geometry = st_union(geometry))
+
 # domestic wells - OSWCR
-data <- read.csv("C://Users/dbostic/Downloads/wellcompletionreports_04172023download.csv")
+data <- read.csv(here("Data", "wellcompletionreports_04172023download.csv"), na.strings=c("", "NA"))
 
 #### descriptive stats on data ####
 # filter out wells with no WCR ID
-data1 <- data %>% dplyr::select(WCRNUMBER, PLANNEDUSEFORMERUSE, TOTALCOMPLETEDDEPTH, TOPOFPERFORATEDINTERVAL, BOTTOMOFPERFORATEDINTERVAL, DATEWORKENDED, Lat=DECIMALLATITUDE, Long=DECIMALLONGITUDE, GROUNDSURFACEELEVATION)
+data1 <- data %>% dplyr::select(WCRNUMBER, PLANNEDUSEFORMERUSE, TOTALCOMPLETEDDEPTH, TOPOFPERFORATEDINTERVAL, BOTTOMOFPERFORATEDINTERVAL, DATEWORKENDED, Lat=DECIMALLATITUDE, Long=DECIMALLONGITUDE, GROUNDSURFACEELEVATION) %>% mutate(Lat = as.numeric(Lat), Long=as.numeric(Long))
+
+tbl <- table(toupper(unlist(strsplit(as.character(data$PLANNEDUSEFORMERUSE), " "))))
 
 # filter to wells constructed after 1950
 data1$year <- year(as.Date(data1$DATEWORKENDED, format = "%m/%d/%Y"))
-data1 <- filter(data1, is.na(year)==F & year>=1950 & year <= 2022)
+data1 <- filter(data1, is.na(year)==F & year>=1952 & year <= 2022)
 
 # filter to get only domestic and public supply wells
-data1 <- data1 %>% filter((grepl("water supply",PLANNEDUSEFORMERUSE, ignore.case = T)|grepl("domestic",PLANNEDUSEFORMERUSE, ignore.case = T)) & (!grepl("destruction",PLANNEDUSEFORMERUSE, ignore.case = T)& !grepl("irrigation",PLANNEDUSEFORMERUSE, ignore.case = T)& !grepl("industrial",PLANNEDUSEFORMERUSE, ignore.case = T)& !grepl("stock",PLANNEDUSEFORMERUSE, ignore.case = T)))
+data1 <- data1 %>% filter(grepl("domestic",PLANNEDUSEFORMERUSE, ignore.case = T) & 
+                            !grepl("destruction",PLANNEDUSEFORMERUSE, ignore.case = T) & 
+                               !grepl("irrigation",PLANNEDUSEFORMERUSE, ignore.case = T) & 
+                               !grepl("industrial",PLANNEDUSEFORMERUSE, ignore.case = T) & 
+                               !grepl("stock",PLANNEDUSEFORMERUSE, ignore.case = T) &
+                                        is.na(Lat)==FALSE &
+                                        is.na(Long)==FALSE &
+                                        Lat != "" &
+                                        Long != "" &
+                                        Lat != "NA" &
+                                        Long != "NA")
+
+data1 <- st_as_sf(data1, coords = c("Lat", "Long"), crs=merc)
+st_crs(data1) <- merc
+st_crs(gsps) <- merc
+data3 <- st_intersection(gsps, data1)
 
 #View(as.data.frame(table(data1$PLANNEDUSEFORMERUSE)))
 
-# run analysis that shows how many wells have missing data, by decade - end result should output a table that includes the decade, number of wells, number of wells with TCD, number of wells with TOS/BOS,
+# run analysis that shows how many wells have1 missing data, by decade - end result should output a table that includes the decade, number of wells, number of wells with TCD, number of wells with TOS/BOS,
 
 # number of missing TCD
-years <- c(1950, 1960, 1975, 1990, 2005)
+years <- c(1952, 1962, 1972, 1989, 1994, 2000)
 table <- list()
-for (j in c(1:5)){
-  for (i in years){
-  data2 <- data1 %>% filter(year >= i)
 
+yearfilter <- function(x){
+  data2 <- data1 %>% filter(year >= x)
   haveTCD <- data2 %>% filter(is.na(TOTALCOMPLETEDDEPTH)==FALSE) %>% summarise(nwells_tcd = length(unique(WCRNUMBER)))
   haveTOP <- data2 %>% filter(is.na(TOPOFPERFORATEDINTERVAL)==FALSE) %>% summarise(nwells_top = length(unique(WCRNUMBER)))
   haveBOT <- data2 %>% filter(is.na(BOTTOMOFPERFORATEDINTERVAL)==FALSE) %>% summarise(nwells_bot = length(unique(WCRNUMBER)))
-  haveALL <- data2 %>% filter(is.na(TOTALCOMPLETEDDEPTH)==FALSE & is.na(TOPOFPERFORATEDINTERVAL)==FALSE & is.na(BOTTOMOFPERFORATEDINTERVAL)==FALSE) %>% summarise(nwells_all = length(unique(WCRNUMBER)))
-
-  combined50 <- cbind(haveTCD, haveTOP, haveBOT, haveALL)
-  table[[j]] <- combined50
-  }
+  haveTCD_TOP <- data2 %>% filter(is.na(TOTALCOMPLETEDDEPTH)==FALSE & is.na(TOPOFPERFORATEDINTERVAL)==FALSE & TOTALCOMPLETEDDEPTH > 0 & TOPOFPERFORATEDINTERVAL > 0) %>% summarise(nwells_all = length(unique(WCRNUMBER)))
+  combined50 <- cbind(haveTCD, haveTOP, haveBOT, haveTCD_TOP)
+  return(combined50)
 }
 
-combined60<- cbind(haveTCD, haveTOP, haveBOT, haveALL)
-combined75<- cbind(haveTCD, haveTOP, haveBOT, haveALL)
-combined90<- cbind(haveTCD, haveTOP, haveBOT, haveALL)
-combined05<- cbind(haveTCD, haveTOP, haveBOT, haveALL)
+ttl <- list()
+for (i in c(1:length(years))){
+  yf <- yearfilter(years[i])
+  yf$year <- years[i]
+  ttl[[i]] <- yf
+}
+all <- do.call(rbind, ttl)
 
-combined <- rbind(combined50, combined60, combined75, combined90, combined05)
+setslist <- list()
+for (i in c(1:length(years))){
+  setslist[[i]] <- data1 %>% filter(year>=years[i] & 
+                          is.na(TOTALCOMPLETEDDEPTH)==FALSE & 
+                          is.na(TOPOFPERFORATEDINTERVAL)==FALSE &
+                            TOTALCOMPLETEDDEPTH > 0 &
+                            TOPOFPERFORATEDINTERVAL > 0)
+}
 
-#percent of wells without a type
+
 
 # once DryWellFunctions.R is run, come back to this code:
 

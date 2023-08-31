@@ -1,12 +1,15 @@
 # dry well analysis code
+# set coordinate reference system
+merc <- crs("+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0
+            +k=1.0 +units=m +nadgrids=@null +no_defs")
 # ca
-ca <- st_read("Boundaries/cb_2018_us_state_500k/cb_2018_us_state_500k.shp") %>% filter(STUSPS == "CA") %>% st_transform(., crs=merc)
+ca <- st_read("Data/Boundaries/cb_2018_us_state_500k/cb_2018_us_state_500k.shp") %>% filter(STUSPS == "CA") %>% st_transform(., crs=merc)
 
 # gsps
-allgwbasins <- st_read("Boundaries/i08_B118_CA_GroundwaterBasins/i08_B118_CA_GroundwaterBasins.shp") %>% st_transform(., crs=merc)
+allgwbasins <- st_read("Data/Boundaries/i08_B118_CA_GroundwaterBasins/i08_B118_CA_GroundwaterBasins.shp") %>% st_transform(., crs=merc)
 
-sgmabasins <- st_read("Boundaries/GSP_submitted/GSA_Master.shp") %>% st_transform(., crs=merc)
-gspcoda <- read_csv("Boundaries/gsp_coda.csv") %>% mutate(GSP.ID = as.character(GSP.ID))
+sgmabasins <- st_read("Data/Boundaries/GSP_submitted/GSA_Master.shp") %>% st_transform(., crs=merc)
+gspcoda <- read_csv("Data/Boundaries/gsp_coda.csv") %>% mutate(GSP.ID = as.character(GSP.ID))
 gsps <- left_join(sgmabasins, gspcoda, by="GSP.ID")
 gsps <- filter(gsps, is.na(GSP.NAME)==FALSE)
 gsps$gsp_area <- st_area(gsps)
@@ -15,35 +18,12 @@ gsps_sp <- as_Spatial(gsps)
 basins <- gsps %>% group_by(BASIN) %>%  st_buffer(100) %>% summarise(geometry = st_union(geometry))
 
 # dacs+
-dacs <- st_read("Boundaries/census_data_disadvantaged_communities_2018/DAC_Pl18.shp") %>% filter(DAC18 == "Y") %>% st_transform(., merc) %>% mutate(area = st_area(.))
+dacs <- st_read("Data/Boundaries/census_data_disadvantaged_communities_2018/DAC_Pl18.shp") %>% filter(DAC18 == "Y") %>% st_transform(., merc) %>% mutate(area = st_area(.))
 
 dcs <- st_intersection(dacs, gsps)
 dcs$dcs_area <- st_area(dcs)
 dcs$perc_overlap <- dcs$dcs_area / dcs$area
 dcs <- filter(dcs, as.numeric(perc_overlap) > .5)
-
-# MTs
-mn <- read.csv("MTs/CentralValleyMTs.csv") %>% filter(is.na(Long)==FALSE & is.na(Lat)==FALSE & is.na(MT_dtw)==FALSE)
-mts <- st_as_sf(mn, coords = c("Long","Lat"), crs=4326) %>% st_transform(., crs=merc)
-mts <- st_intersection(mts, gsps)
-mtjoindata <- mts %>% st_drop_geometry(.) %>% dplyr::select(GSP.ID, GSP.NAME) %>% unique(.)
-
-# domestic wells
-richsdws <- read_rds("DomesticWells/domcv6_mean_gw_with_beta_GF_CI.rds") %>% st_as_sf(.) %>% st_transform(., st_crs(gsps)) %>% filter(year >=1990)
-dw <- st_intersection(richsdws, gsps)
-hi <- dw %>% group_by(GSP.NAME) %>% summarise(`Number of Domestic Wells` = length(unique(WCRNumber)),`Average TCD` = mean(TotalCompletedDepth, na.rm=TRUE), `Average Pump Depth` = mean(pump_loc), `Fraction of All DWs`=100*length(unique(WCRNumber))/nrow(dw)) %>% st_drop_geometry(.)
-
-# public supply wells
-psws <- read.csv("DomesticWells/gama_location_construction_v2.csv") %>% filter(., GM_WELL_CATEGORY == "MUNICIPAL" | GM_WELL_CATEGORY == "WATER SUPPLY, OTHER")
-psws <-  st_as_sf(psws, coords = c("GM_LONGITUDE","GM_LATITUDE"), crs=4326) %>% st_transform(., crs=merc)
-psw <- psws %>% filter(is.na(GM_WELL_DEPTH_FT)==FALSE & GM_WELL_DEPTH_FT >0 & GM_WELL_DEPTH_FT < 5000) %>% st_intersection(., gsps)
-
-# ALL DRINKING WATER WELLS
-dws <- dw %>% mutate(type = "domestic") %>% dplyr::select(WCR = WCRNumber, type, BASIN, GSP.NAME=GSP.NAME, TCD = TotalCompletedDepth, pump_loc, top, bot)
-psww <- psw %>% mutate(pump_loc = NA, type = "public supply") %>% 
-  dplyr::select(WCR = GM_WELL_ID, type, BASIN, GSP.NAME=GSP.NAME, TCD = GM_WELL_DEPTH_FT, pump_loc, top = GM_TOP_DEPTH_OF_SCREEN_FT, bot = GM_BOTTOM_DEPTH_OF_SCREEN_FT)
-
-dwws <- rbind(dws, psww) %>% filter(TCD > 0 & TCD < 5000)
 
 # groundwater levels
 cgwl_raster <- read_rds("InterpolationGWLevels/cgwl_raster.rds")
