@@ -66,7 +66,7 @@ data3 <- st_intersection(data1, gsps)
 # run analysis that shows how many wells have1 missing data, by decade - end result should output a table that includes the decade, number of wells, number of wells with TCD, number of wells with TOS/BOS,
 
 # number of missing TCD
-years <- c(1952, 1962, 1972, 1989, 1994, 2000)
+years <- c(1952, 1962, 1972, 1994, 2000)
 table <- list()
 
 yearfilter <- function(x){
@@ -78,6 +78,22 @@ yearfilter <- function(x){
   combined50 <- cbind(haveTCD, haveTOP, haveBOT, haveTCD_TOP)
   return(combined50)
 }
+
+nabyyear <- data3 %>% st_drop_geometry(.) %>% group_by(year) %>% summarise(na_tcd=length(WCRNUMBER[is.na(TOTALCOMPLETEDDEPTH)]), na_top=length(WCRNUMBER[is.na(TOPOFPERFORATEDINTERVAL)]), y_tcd=length(WCRNUMBER[!is.na(TOTALCOMPLETEDDEPTH)]), y_top=length(WCRNUMBER[!is.na(TOPOFPERFORATEDINTERVAL)]))
+
+nby <- nabyyear %>% 
+  pivot_longer(
+    cols = na_tcd:y_top, 
+    names_to = "status",
+    values_to = "value"
+  )
+
+ggplot(data=nby, aes(year,value))+
+  geom_line(aes(color = status, linetype=status)) + 
+  scale_color_manual(values = c("darkred", "darkorange", "steelblue", "cornflowerblue"))+
+    scale_linetype_manual(values = c(1, 1, 2, 2))+
+  ggtitle("Number of Missing and Available Data by Year")+
+  theme_bw()
 
 ttl <- list()
 for (i in c(1:length(years))){
@@ -101,7 +117,29 @@ for (i in c(1:length(years))){
 # remove wells whose TCD are above CGWL
 activewells <- list()
 for (i in c(1:length(setslist))){
+  print(years[i])
   activewells[[i]] <- wellanalysis(setslist[[i]])
 }
 
+# now we intersect with census block groups?
+cbg <- st_read("https://gis.water.ca.gov/arcgis/rest/services/Society/i16_Census_BlockGroup_DisadvantagedCommunities_2020/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=json")
+cbg <- st_read("Data/i16_Census_BlockGroup_DisadvantagedCommunities_2020/i16_Census_BlockGroup_DisadvantagedCommunities_2020.shp") %>% st_make_valid(.)
+cv_cbg <- st_intersection(cbg, st_make_valid(gsps))
+
+wells_bg <- list()
+bg_dry <- list()
+wide_bg <- list()
+for (i in c(1:length(activewells))){
+  print(years[i])
+  wells_bg[[i]] <- st_intersection(cv_cbg, activewells[[i]])
+  bg_dry[[i]] <- wells_bg[[i]] %>% st_drop_geometry(.) %>% group_by(GEOID20,DAC20, dry) %>% summarise(WellCounts=length(unique(WCRNUMBER)), MHI=mean(MHI20)) %>% left_join(cv_cbg, .)
+  wide_bg[[i]] <- bg_dry[[i]] %>% spread(dry, WellCounts)
+}
+
+
+# group well stats by block group
+write_rds(bg_dry,"FINALbg_wellsdry_long.rds")
+write_rds(wide_bg, "FINAL_wide_bg_wd_noyear.rds")
+
+ggplot()+geom_sf(data=wide_bg[[1]], aes(fill=TCDdry))+theme_void()
  
