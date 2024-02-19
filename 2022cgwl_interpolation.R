@@ -7,6 +7,8 @@ library(readr)
 library(gstat)
 library(rgdal)
 library(lubridate)
+library(terra)
+library(stars)
 
 # set working directory
 # load data
@@ -25,13 +27,31 @@ gwl_m_sf <- filter(gwl_m_sf, gse_gwe > 0)
 fall <- filter(gwl_m_sf, msmt_date >= as.Date("2022-08-01") & msmt_date <= as.Date("2022-10-31"))
 spring <- filter(gwl_m_sf, msmt_date >= as.Date("2022-01-01") & msmt_date <= as.Date("2022-03-31"))
 
-# GSP outline
+fall_and_spring22 <- rbind(fall, spring)
+fs22 <- vect(fall_and_spring22)
+fs22 <- spTransform(as_Spatial(st_as_sf(fs22)), CRS=CRS("+proj=merc +ellps=GRS80"))
+
+#### BOUNDARIES ####
 cv <- st_read("Data/Boundaries/i08_C2VSimFG_Boundary/i08_C2VSimFG_Boundary.shp")
 cv <- st_transform(cv, crs=4326)
 interp_boundary <- as_Spatial(cv) # transform central valley shapefile
+CV.Shape <- vect(cv) 
+#transforming the boundary
+CV.Shape_merc <- spTransform(as_Spatial(st_as_sf(CV.Shape)), CRS=CRS("+proj=merc +ellps=GRS80"))
+CV.Shape_merc #looking at summary output to check projection 
 
-#### interpolation ####
-#### fall ####
+#### preparing an empty grid ####
+G <- as.data.frame(spsample(fs22, "regular", n=5000)) #n = total number of grid cells
+names(G) <- c("X", "Y")
+coordinates(G) <- c("X", "Y")
+gridded(G) <- TRUE  # create SpatialPixel object
+fullgrid(G) <- TRUE  # create SpatialGrid object
+proj4string(G) <- proj4string(fs22) # using the projection from F22_merc to project the grid G
+proj4string(G) # checking that G is projected
+plot(G)
+
+
+#### FALL 2022 interpolation ####
 # subset pts to the central valley polygon
 subset_boundary <- function(x){x[interp_boundary,]}
 f_cv <- subset_boundary(as_Spatial(fall))
@@ -59,46 +79,51 @@ f_cv <- no_neg(f_cv)
 f_cv@data$gse_gwe <- log(f_cv@data$gse_gwe)
 
 # plot to ensure all is working
-title <- "2022 Groundwater Level Monitoring Wells"
+title <- "FALL 2022 Groundwater Level Monitoring Wells"
 st <- formatC(nrow(f_cv), big.mark = ",")
 
 plot(interp_boundary, col="grey90", sub = paste0("Spatially Unique Observations: ", st))
 plot(f_cv, add = T, pch = 16, cex = .2, col = "red")
 
-#### set up interpolation boundary ####
-r <- st_rasterize(cv)          # create a template raster to interpolate over
-raster::res(r) <- 5000            # > township resolution: 6 miles = 9656.06 meters
-g <- as(r, "SpatialGrid") # convert raster to spatial grid object
+### vectorize and raster
+F22 <- vect(f_cv)
 
+# transforming the filtered data so that it is a projected CRS
+F22_merc <- spTransform(as_Spatial(st_as_sf(F22)), CRS=CRS("+proj=merc +ellps=GRS80")) 
+F22_merc # looking at summary output to check projection 
 
 #### FALL 22 KRIGING #####  
+library(automap)
+afv <- autofitVariogram(gse_gwe~1, F22_merc)
+plot(afv)
+
 library(gstat)
 gs_f <- gstat(formula = gse_gwe ~ 1, # spatial data, so fitting xy as idp vars
-              locations = f_cv)        # groundwater monitoring well points 
+              locations = F22_merc)        # groundwater monitoring well points 
 
 v_f <- variogram(gs_f,              # gstat object
-                 width = 5000)    # lag distance
+                 width = 50)    # lag distance
 
 fve_f <- fit.variogram(v_f,         # takes `gstatVariogram` object
-                       vgm(15,   # partial sill: semivariance at the range
+                       vgm(.83,   # partial sill: semivariance at the range
                            "Exp",     # linear model type
-                           100000,    # range: distance where model first flattens out
-                           0.25))      # nugget
+                           60000,    # range: distance where model first flattens out
+                           .07))      # nugget
 
 # plot variogram and fit
 plot(v_f, fve_f, xlab = 'Distance (m)', main = "FA 2018 Variogram")
 
-crs(g) <- crs(f_cv)
+crs(G) <- crs(F22_merc)
 
 # ordinary kriging 
-kp_f <- krige(gse_gwe ~ 1, f_cv, g, model = fve_f)
+kp_f <- krige(gse_gwe ~ 1, F22_merc, G, model = fve_f)
 
 # backtransformed
 bt_f <- exp(kp_f@data$var1.pred + (kp_f@data$var1.var / 2) )
 
 # means of backtransformed values and the sampled values
 mu_bt_f <- mean(bt_f)
-mu_original_f <- mean(mean(exp(f_cv$DGBS)))
+mu_original_f <- mean(mean(exp(F22_merc$gse_gwe)))
 
 # these means differ by > 5%, thus we make another correction
 btt_f <- bt_f * (mu_original_f/mu_bt_f)
@@ -107,118 +132,102 @@ kp_f@data$var1.var  <- exp(kp_f@data$var1.var)  # exponentiate the variance
 
 # covert to raster brick and crop to CV
 ok_f <- brick(kp_f)                          # spatialgrid df -> raster brick obj.
-ok_f <- mask(ok_f, interp_boundary)                       # mask to cv extent
+ok_f <- mask(ok_f, CV.Shape_merc)                       # mask to cv extent
 names(ok_f) <- c('Prediction', 'Variance') # name the raster layers in brick
 
 plot(ok_f$Prediction)
 ok_f$ci_upper <- ok_f$Prediction + (1.96 * sqrt(ok_f$Variance))
 ok_f$ci_lower <- ok_f$Prediction - (1.96 * sqrt(ok_f$Variance))
-readr::write_rds(ok_f, "InterpolationGWLevels/fall18_interp_allcobs.rds")
+readr::write_rds(ok_f, "Data/InterpolationGWLevels/fall22_interp.rds")
 
-#### FALL AND SPRING 2019 KRIGING ####
-d  <- read_csv("InterpolationGWLevels/drive-download-20220412T055017Z-001/Fall_Spring_2019_InterpolationPoints/measurements.csv")
-d2 <- read_csv("InterpolationGWLevels/drive-download-20220412T055017Z-001/Fall_Spring_2019_InterpolationPoints/stations.csv")
-
-# subset measurements to 2019
-d <- filter(gwl_m_sf, lubridate::year(msmt_date) == 2022) %>% 
-  left_join(d2, by = "STN_ID")
-
-# subset for observation wells with a 2019 measurement
-d3 <- gwl_m_sf %>% 
-  filter(!is.na(gse_gwe) & well_use == "Observation") %>% 
-  group_by(stn_id) %>% 
-  summarise(mean_gwl = mean(gse_gwe)) %>% 
-  left_join(d2, by = "STN_ID")
-
-d3 <- d3 %>% filter(mean_gwl >= 1)
-
-# convert d3 into spatialPointsDataFrame
-# prepare the 3 components: coordinates, data, and proj4string
-spdf <- as_Spatial(d3)
-
-spdf_merc <- spTransform(spdf, crs(interp_boundary))
-
-subset_cv <- function(x){x[interp_boundary, ]}
-pcv <- subset_cv(spdf_merc) 
-
-# plot to see where monitoring wells are
-interp_boundary2 <- st_as_sf(interp_boundary)
-pcv3 <- st_as_sf(pcv)
-ggplot() +
-  geom_sf(data = interp_boundary2)+
-  geom_sf(data = pcv3, aes(color = mean_gwl)) + 
-  scale_colour_gradientn(colours=rainbow(4))
+#### SPRING 2022 INTERPOLATION ####
+# subset pts to the central valley polygon
+s_cv <- subset_boundary(as_Spatial(spring))
 
 # get sets of overlapping points
-get_set <- function(x, y){zerodist(x)[, y]}
-s1 <- get_set(pcv, 1)      # index of set 1: wells wtih an overlapping observation
-s2 <- get_set(pcv, 2)      # index of set 2: wells wtih an overlapping observation
+sfa1 <- get_set(s_cv, 1)      # index of set 1: wells wtih an overlapping observation
+sfa2 <- get_set(s_cv, 2)      # index of set 2: wells wtih an overlapping observation
 
 # get parallel minima of overlapping points
-min_list = pmin(pcv[s1,]$mean_gwl, pcv[s2,]$mean_gwl)
+s_min_list = pmin(s_cv[sfa1,]$gse_gwe, s_cv[sfa2,]$gse_gwe)
 
 # replace DGBS of set 2 wells wtih average of set 1 and 2
-pcv[s2, "mean_gwl"] <- min_list
+s_cv[sfa2, "gse_gwe"] <- s_min_list
 
 # remove set 1 wells
-pcv <- pcv[-s1, ]
+s_cv <- s_cv[-sfa1, ]
+
+# fix incorrect values: observations depth below groud surface > 0 
+s_cv <- no_neg(s_cv)
 
 # log transform Depth Below Ground Surface 
-pcv@data$mean_gwl_log <- log(pcv@data$mean_gwl)
+s_cv@data$gse_gwe <- log(s_cv@data$gse_gwe)
 
-library(automap)
-plot(autofitVariogram(mean_gwl_log~1, pcv))
+# plot to ensure all is working
+title <- "SPRING 2022 Groundwater Level Monitoring Wells"
+st <- formatC(nrow(s_cv), big.mark = ",")
+plot(interp_boundary, col="grey90", sub = paste0("Spatially Unique Observations: ", st))
+plot(s_cv, add = T, pch = 16, cex = .2, col = "red")
 
-gs <- gstat(formula = mean_gwl_log ~ 1, # spatial data, so fitting xy as idp vars
-            locations = pcv)        # groundwater monitoring well points 
+### vectorize and raster
+S22 <- vect(s_cv)
 
-v <- variogram(gs,              # gstat object
-               width = 1)    # lag distance
-plot(v)
+# transforming the filtered data so that it is a projected CRS
+S22_merc <- spTransform(as_Spatial(st_as_sf(S22)), CRS=CRS("+proj=merc +ellps=GRS80")) 
+S22_merc # looking at summary output to check projection 
 
+#### SPRING 22 KRIGING #####  
+gs_f <- gstat(formula = gse_gwe ~ 1, # spatial data, so fitting xy as idp vars
+              locations = S22_merc)        # groundwater monitoring well points 
 
-fve <- fit.variogram(v,         # takes `gstatVariogram` object
-                     vgm(1.5,   # partial sill: semivariance at the range
-                         "Exp",     # linear model type
-                         40,    # range: distance where model first flattens out
-                         0.4))      # nugget
+v_f <- variogram(gs_f,              # gstat object
+                 width = 50)    # lag distance
+
+sve_f <- fit.variogram(v_f,         # takes `gstatVariogram` object
+                       vgm(.83,   # partial sill: semivariance at the range
+                           "Exp",     # linear model type
+                           40000,    # range: distance where model first flattens out
+                           .07))      # nugget
 
 # plot variogram and fit
-plot(v, fve, xlab = 'Distance (m)', main = "Mean 2022 Variogram")
+plot(v_f, sve_f, xlab = 'Distance (m)', main = "SP2022 Variogram")
+
+crs(G) <- crs(S22_merc)
 
 # ordinary kriging 
-kp <- krige(mean_gwl_log ~ 1, pcv, g, model = fve)
+kp_f <- krige(gse_gwe ~ 1, S22_merc, G, model = sve_f)
 
 # backtransformed
-bt <- exp(kp@data$var1.pred + (kp@data$var1.var / 2) )
+bt_f <- exp(kp_f@data$var1.pred + (kp_f@data$var1.var / 2) )
 
 # means of backtransformed values and the sampled values
-mu_bt <- mean(bt)
-mu_original <- mean(mean(exp(pcv$mean_gwl_log)))
+mu_bt_f <- mean(bt_f)
+mu_original_f <- mean(mean(exp(S22_merc$gse_gwe)))
 
 # these means differ by > 5%, thus we make another correction
-btt <- bt * (mu_original/mu_bt)
-kp@data$var1.pred <- btt                    # overwrite w/ correct vals 
-kp@data$var1.var  <- exp(kp@data$var1.var)  # exponentiate the variance
+btt_f <- bt_f * (mu_original_f/mu_bt_f)
+kp_f@data$var1.pred <- bt_f                    # overwrite w/ correct vals 
+kp_f@data$var1.var  <- exp(kp_f@data$var1.var)  # exponentiate the variance
 
 # covert to raster brick and crop to CV
-ok_19 <- brick(kp)                          # spatialgrid df -> raster brick obj.
-ok_19 <- mask(ok_19, interp_boundary)                       # mask to cv extent
-names(ok_19) <- c('Prediction', 'Variance') # name the raster layers in brick
+ok_s <- brick(kp_f)                          # spatialgrid df -> raster brick obj.
+ok_s <- mask(ok_s, CV.Shape_merc)                       # mask to cv extent
+names(ok_s) <- c('Prediction', 'Variance') # name the raster layers in brick
 
-plot(ok_19$Prediction)
-ok_19$ci_upper <- ok_19$Prediction + (1.96 * sqrt(ok_19$Variance))
-ok_19$ci_lower <- ok_19$Prediction - (1.96 * sqrt(ok_19$Variance))
-readr::write_rds(ok_19, "InterpolationGWLevels/FSP19_interpolation_allcobs.rds")
+plot(ok_s$Prediction)
+ok_s$ci_upper <- ok_s$Prediction + (1.96 * sqrt(ok_s$Variance))
+ok_s$ci_lower <- ok_s$Prediction - (1.96 * sqrt(ok_s$Variance))
+readr::write_rds(ok_s, "Data/InterpolationGWLevels/spring22_interp.rds")
 
-#### Average 2018 2019 groundwater level predictions ####
-d_avg <- mean(ok_f$Prediction, ok_sp$Prediction, ok_19$Prediction)
-readr::write_rds(d_avg, "InterpolationGWLevels/cgwl_raster.rds")
+
+#### Average 2022 groundwater level predictions ####
+extent(ok_f$Prediction) <- extent(G)
+ok_f <- resample(ok_f, ok_s)
+d_avg <- mean(ok_f$Prediction, ok_s$Prediction)
+readr::write_rds(d_avg, "Data/InterpolationGWLevels/cgwl2022_raster.rds")
 
 pal <- colorRampPalette(c("cornflowerblue","red"))
-plot(d_avg, col = pal(6), main = "Mean WSE \n2018 - 2019", axes=FALSE, box=FALSE)
-plot(gsps$geometry, add=T)
-
+plot(d_avg, col = pal(6), main = "Mean WSE \n2022", axes=FALSE, box=FALSE)
 #writeRaster(d_avg, filename = "Output/1819avginterp_allcobs.tif", overwrite=TRUE)
 
 #### AAAAA Interpolate USE THIS ONE PLEASE PLEASE ####
