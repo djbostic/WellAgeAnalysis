@@ -16,7 +16,7 @@ merc <- crs("+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y
 ca <- st_read("Data/Boundaries/cb_2018_us_state_500k/cb_2018_us_state_500k.shp") %>% filter(STUSPS == "CA") %>% st_transform(., crs=merc)
 
 # groundwater levels
-cgwl_raster <- read_rds("Data/InterpolationGWLevels/cgwl_raster.rds")
+cgwl_raster <- read_rds("Data/InterpolationGWLevels/cgwl2022_raster.rds")
 mt_raster <- read_rds("Data/InterpolationGWLevels/mt_raster.rds")
 
 # gsps
@@ -129,17 +129,52 @@ cv_cbg <- st_intersection(cbg, st_make_valid(gsps))
 wells_bg <- list()
 bg_dry <- list()
 wide_bg <- list()
+#fcv <- cv_cbg
 for (i in c(1:length(activewells))){
   print(years[i])
   wells_bg[[i]] <- st_intersection(cv_cbg, activewells[[i]])
-  bg_dry[[i]] <- wells_bg[[i]] %>% st_drop_geometry(.) %>% group_by(GEOID20,DAC20, dry) %>% summarise(WellCounts=length(unique(WCRNUMBER)), MHI=mean(MHI20)) %>% left_join(cv_cbg, .)
+  bg_dry[[i]] <- wells_bg[[i]] %>% st_drop_geometry(.) %>% group_by(GEOID20,DAC20, dry) %>% summarise(WellCounts=length(unique(WCRNUMBER)), MHI=mean(MHI20))
   wide_bg[[i]] <- bg_dry[[i]] %>% spread(dry, WellCounts)
+  wide_bg[[i]][is.na(wide_bg[[i]])] <- 0
+  wide_bg[[i]]$perc_impacted <- (wide_bg[[i]]$TCDdry+wide_bg[[i]]$topdry)/(wide_bg[[i]]$TCDdry+wide_bg[[i]]$topdry+wide_bg[[i]]$active)
+  wide_bg[[i]]$perc_fullydew <- (wide_bg[[i]]$TCDdry)/(wide_bg[[i]]$TCDdry+wide_bg[[i]]$topdry+wide_bg[[i]]$active)
+  wide_bg[[i]]$perc_partidew <- (wide_bg[[i]]$topdry)/(wide_bg[[i]]$TCDdry+wide_bg[[i]]$topdry+wide_bg[[i]]$active)
+  wide_bg[[i]]$YEAR <- years[i]
 }
 
+albg <- do.call(rbind, wide_bg)
 
-# group well stats by block group
-write_rds(bg_dry,"FINALbg_wellsdry_long.rds")
-write_rds(wide_bg, "FINAL_wide_bg_wd_noyear.rds")
+albg_wide <- albg %>%
+  tidyr::pivot_wider(
+    names_from  = c(YEAR), # Can accommodate more variables, if needed.
+    values_from = c(TCDdry, topdry, active, perc_impacted, perc_fullydew, perc_partidew)
+  )
+
+#all in one with block group, year, percent impacted to calculate percent change 
+write_rds(albg_wide,"drystats_by_bg_WIDE_2022cgwl.rds")
+write_rds(albg, "drystats_by_bg_LONG_2022cgwl.rds")
+
+# by well 
+bw <- list()
+wide_bw <- list()
+for (i in c(1:length(activewells))){
+  print(years[i])
+  bw[[i]] <- st_intersection(activewells[[i]], cv_cbg)
+  bw[[i]]$YEAR <- years[i]
+  bw[[i]]<-bw[[i]][,-c(42:51)]
+}
+
+long_bw <- do.call(rbind, bw)
+
+wide_bw <- long_bw %>%
+  tidyr::pivot_wider(.,
+    names_from  = c(year), # Can accommodate more variables, if needed.
+    values_from = c(GEOID20)
+  )
+
+#all in one with block group, year, percent impacted to calculate percent change 
+write_rds(wide_bw,"dryWells_wide_2022cgwl.rds")
+write_rds(long_bw, "dryWells_long_2022cgwl.rds")
 
 ggplot()+geom_sf(data=wide_bg[[1]], aes(fill=TCDdry))+theme_void()
  

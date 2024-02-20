@@ -1,5 +1,5 @@
 # dry well analysis code
-dacs <- st_read("Data/Boundaries/census_data_disadvantaged_communities_2018/DAC_Pl18.shp") %>% filter(DAC18 == "Y") %>% st_transform(., merc) %>% mutate(area = st_area(.))
+#dacs <- st_read("Data/Boundaries/census_data_disadvantaged_communities_2018/DAC_Pl18.shp") %>% filter(DAC18 == "Y") %>% st_transform(., merc) %>% mutate(area = st_area(.))
 
 dcs <- st_intersection(dacs, gsps)
 dcs$dcs_area <- st_area(dcs)
@@ -8,7 +8,8 @@ dcs <- filter(dcs, as.numeric(perc_overlap) > .5)
 
 # groundwater levels
 library(readr)
-cgwl_raster <- read_rds("Data/InterpolationGWLevels/cgwl_raster.rds")
+library(raster)
+cgwl_raster <- read_rds("Data/InterpolationGWLevels/cgwl2022_raster.rds")
 projectRaster(cgwl_raster, crs=crs(setslist[[1]]))
 
 mt_raster <- read_rds("Data/InterpolationGWLevels/mt_raster.rds")
@@ -46,3 +47,4 @@ wellanalysis <- function(x=dwws){
   print(table(mad$dry)/length(unique(mad$WCR)))
   return(mad)
 }
+
