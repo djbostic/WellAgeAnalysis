@@ -206,8 +206,18 @@ wide_bw <- long_bw %>%
 write_rds(wide_bw,"/Users/darcybostic/Library/CloudStorage/GoogleDrive-djbostic1@gmail.com/.shortcut-targets-by-id/1zxS7SNp6bWpJ9u6mnyUMJiNkb3JenKPJ/Well retirement age and data reliability note/Code/WellAgeAnalysis/dryWells_wide_2022cgwl_updated.rds")
 write_rds(long_bw, "/Users/darcybostic/Library/CloudStorage/GoogleDrive-djbostic1@gmail.com/.shortcut-targets-by-id/1zxS7SNp6bWpJ9u6mnyUMJiNkb3JenKPJ/Well retirement age and data reliability note/Code/WellAgeAnalysis/dryWells_long_2022cgwl_updated.rds")
 
-bg_geom <- left_join(cbg, albg, by=GEOID20)
-ggplot()+geom_sf(data=cbg)+theme_void()
+bg_geom <- left_join(cbg, albg, by="GEOID20")
+bg_geom <- st_intersection(bg_geom, cv_cbg)
+ggplot()+geom_sf(data=bg_geom, lwd=.1, aes(fill=active))+theme_void()
 
+# we want a plot that shows the CHANGE in number of dewatered wells between 28 years and 70 AND 28 years and 45
+# I need a table of BGs with FullyDewatered(70-28), FullyDewatered(45-28)
+cleant <- albg_wide %>% group_by(GEOID20) %>% summarise(FullyDe7028 = TCDdry_1952-TCDdry_1994, FullyDe4528=TCDdry_1977-TCDdry_1994, PercChange7028 = perc_fullydew_1952-perc_fullydew_1994, PercChange4528 = perc_fullydew_1977-perc_fullydew_1994)
 
- 
+cleanbg <- left_join(cbg, cleant, by="GEOID20")
+cleanbg <- st_intersection(cleanbg, basins)
+ggplot()+
+  geom_sf(data=ca, fill=NA, col="grey20")+
+  geom_sf(data=basins, fill=NA, col="grey90")+
+  geom_sf(data=cleanbg, lwd=.1, aes(fill=FullyDe7028))+
+  theme_void()
