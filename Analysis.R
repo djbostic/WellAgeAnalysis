@@ -217,7 +217,14 @@ cleant <- albg_wide %>% group_by(GEOID20) %>% summarise(FullyDe7028 = TCDdry_195
 cleanbg <- left_join(cbg, cleant, by="GEOID20")
 cleanbg <- st_intersection(cleanbg, basins)
 ggplot()+
-  geom_sf(data=ca, fill=NA, col="grey20")+
-  geom_sf(data=basins, fill=NA, col="grey90")+
-  geom_sf(data=cleanbg, lwd=.1, aes(fill=FullyDe7028))+
+  #geom_sf(data=ca, fill=NA, col="grey20")+
+  geom_sf(data=basins, fill=NA, col="black")+
+  geom_sf(data=cleanbg, lwd=.1, aes(fill=FullyDe7028), col=NA)+
+  scale_fill_continuous(type="gradient")+
+  theme_void()
+ggplot()+
+  #geom_sf(data=ca, fill=NA, col="grey20")+
+  geom_sf(data=basins, fill=NA, col="black")+
+  geom_sf(data=cleanbg, lwd=.1, aes(fill=FullyDe4528), col=NA)+
+  scale_fill_continuous(type="viridis")+
   theme_void()
