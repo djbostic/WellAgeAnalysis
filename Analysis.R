@@ -2,11 +2,11 @@
 library(tidyverse) # general purpose data science toolkit
 library(sp)        # spatial objects
 library(raster)    # for raster objects
-library(here)
 library(sf)
 library(lubridate)
 library(readr)
 options(timeout=1000)
+setwd("/Users/darcybostic/Library/CloudStorage/GoogleDrive-djbostic1@gmail.com/.shortcut-targets-by-id/1zxS7SNp6bWpJ9u6mnyUMJiNkb3JenKPJ/Well retirement age and data reliability note/Code/WellAgeAnalysis/")
 
 # load data
 # set coordinate reference system
@@ -16,7 +16,7 @@ merc <- crs("+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y
 ca <- st_read("Data/Boundaries/cb_2018_us_state_500k/cb_2018_us_state_500k.shp") %>% filter(STUSPS == "CA") %>% st_transform(., crs=merc)
 
 # groundwater levels
-cgwl_raster <- read_rds("Data/InterpolationGWLevels/cgwl2022_raster.rds")
+cgwl_raster <- read_rds("Data/InterpolationGWLevels/cgwl_raster.rds")
 mt_raster <- read_rds("Data/InterpolationGWLevels/mt_raster.rds")
 
 # gsps
@@ -132,7 +132,11 @@ ac <- do.call(rbind,activewells)
 ggplot()+
   geom_boxplot(data=ac, aes(ac$TOTALCOMPLETEDDEPTH, group=ac$scenario, color=scenario), outlier.alpha = .1)+
   coord_flip(xlim=c(1000, 0))+
-  theme_bw()
+  theme_bw()+
+  theme(axis.title.x=element_blank(),
+                    axis.text.x=element_blank(),
+                    axis.ticks.x=element_blank())+
+  labs(fill='NEW LEGEND TITLE') 
 
 alp <- c(1, .5, .2, .1)
 red3 <- "#9b2226"
@@ -146,11 +150,21 @@ blue2 <- "#0a9396"
 blue3 <- "#005f73"
 black <- "#001219"
 cols <- rev(c("#005f99", blue3, blue2, blue1))
-ggplot()+
-  geom_jitter(data=ac, aes(ac$TOTALCOMPLETEDDEPTH, ac$year, color=scenario), alpha=.8)+
+p <- ggplot()+
+  geom_jitter(data=ac, aes(ac$TOTALCOMPLETEDDEPTH, ac$year, color=scenario), alpha=.9)+
   coord_flip(xlim=c(1000, 0))+
   scale_color_manual(values=cols)+
-  theme_bw()
+  stat_summary(fun.data=mean_sdl, size=0.6, geom="pointrange", color="black")+
+  theme_bw()+
+  ylab("Year Well Completed")+
+  xlab("Total Completed Depth (ft bgs)")+
+  labs(color="Model Scenarios")+
+  labs(caption = "Note: All wells constructed after the model scenario year are included in each respective scenario.\nFor example, the All Time scenario includes wells from 1900 to 2022.")+
+  theme(plot.caption = element_text(hjust = 0))
+
+lo <- loess(as.numeric(TOTALCOMPLETEDDEPTH)~len,data=ac)
+p1 <- p+geom_line(aes(x=predict(lo)))
+  
 # now we intersect with census block groups?
 cbg <- st_read("https://gis.water.ca.gov/arcgis/rest/services/Society/i16_Census_BlockGroup_DisadvantagedCommunities_2020/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=json")
 cbg <- st_read("Data/i16_Census_BlockGroup_DisadvantagedCommunities_2020/i16_Census_BlockGroup_DisadvantagedCommunities_2020.shp") %>% st_make_valid(.)
@@ -180,8 +194,12 @@ albg_wide <- albg %>%
     values_from = c(TCDdry, topdry, active, perc_impacted, perc_fullydew, perc_partidew)
   )
 
+newalbgwide <- albg_wide %>% select(GEOID20, perc_impacted_1900, perc_impacted_1952, perc_impacted_1977, perc_fullydew_1994, perc_fullydew_1900, perc_fullydew_1952, perc_fullydew_1977, perc_fullydew_1994)
+
+save.image(file="Data/analysis_session_05212024.RData")
+
 #all in one with block group, year, percent impacted to calculate percent change 
-write_rds(albg_wide,"/Users/darcybostic/Downloads/drystats_bg_WIDE_2022cgwl_updated.rds")
+write_rds(albg_wide,"/Users/darcybostic/Downloads/new_BG_results_05072024.rds")
 write_rds(albg, "/Users/darcybostic/Downloads/drystats_bg_LONG_2022cgwl_updated.rds")
 
 # by well 
@@ -212,7 +230,16 @@ ggplot()+geom_sf(data=bg_geom, lwd=.1, aes(fill=active))+theme_void()
 
 # we want a plot that shows the CHANGE in number of dewatered wells between 28 years and 70 AND 28 years and 45
 # I need a table of BGs with FullyDewatered(70-28), FullyDewatered(45-28)
-cleant <- albg_wide %>% group_by(GEOID20) %>% summarise(FullyDe7028 = TCDdry_1952-TCDdry_1994, FullyDe4528=TCDdry_1977-TCDdry_1994, PercChange7028 = perc_fullydew_1952-perc_fullydew_1994, PercChange4528 = perc_fullydew_1977-perc_fullydew_1994)
+# I also want to show where Fully Dewatered #s are the same
+cleant <- albg_wide %>% group_by(GEOID20, MHI) %>% 
+  summarise(NumWells_1900=TCDdry_1900+topdry_1900+active_1900,
+            NumWells_1952=TCDdry_1952+topdry_1952+active_1952,
+            NumWells_1977=TCDdry_1977+topdry_1977+active_1977, 
+            NumWells_1994=TCDdry_1994+topdry_1994+active_1994,
+            FullyDe7028 = 100*(TCDdry_1952-TCDdry_1994)/TCDdry_1994,
+            FullyDe4528 = 100*(TCDdry_1977-TCDdry_1994)/TCDdry_1994)
+
+# lets try for relative change % (new-old)/old*100
 
 cleanbg <- left_join(cbg, cleant, by="GEOID20")
 cleanbg <- st_intersection(cleanbg, basins)
@@ -228,3 +255,17 @@ ggplot()+
   geom_sf(data=cleanbg, lwd=.1, aes(fill=FullyDe4528), col=NA)+
   scale_fill_continuous(type="viridis")+
   theme_void()
+ggplot()+
+  geom_smooth(data=albg_wide, aes(MHI, perc_fullydew_1900), color="magenta", ymin=0)+
+  geom_smooth(data=albg_wide, aes(MHI, perc_fullydew_1952), color=red3, ymin=0)+
+  geom_smooth(data=albg_wide, aes(MHI, perc_fullydew_1977), color=red2, ymin=0)+
+  geom_smooth(data=albg_wide, aes(MHI, perc_fullydew_1994), color=blue3, ymin=0)+
+  xlim(1, 300000)+
+  theme_bw()
+
+ggplot()+
+  geom_boxplot(data=albg, aes(group=YEAR, perc_fullydew, color=as.character(YEAR)), alpha=.2)+
+  scale_color_manual(values=c(blue3, blue1, orange2, orange3))+
+  xlab("Percent Fully Dewatered Per Census Block Group")+
+  coord_flip()+
+  theme_minimal()

@@ -12,7 +12,7 @@ library(raster)
 cgwl_raster <- read_rds("Data/InterpolationGWLevels/cgwl2022_raster.rds")
 projectRaster(cgwl_raster, crs=crs(setslist[[1]]))
 
-mt_raster <- read_rds("Data/InterpolationGWLevels/mt_raster.rds")
+mt_raster <- read_rds("/Users/darcybostic/Downloads/mt_raster_dl.rds")
 
 wellanalysis <- function(x=dwws){
   cgwl_at_dw <- raster::extract(cgwl_raster, x) # intersect to get value of current water level at well points
