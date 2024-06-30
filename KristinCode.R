@@ -327,6 +327,7 @@ Bplot_Own <- ggplot(Bplot_Owndata, aes(x=Qown, y = change.fullydew.1994.1952, gr
   geom_boxplot() + labs(x= "Percent of households that are owner-occupied", y = "Change in percent of dewatered wells")
 
 my_pal <- rcartocolor::carto_pal(n = 8, name = "Bold")[c(1, 3, 7, 2)]
+my_pal <- c("purple", "gray")
 theme_flip <-
   theme(
     axis.text.x = element_text(face = "plain", size = 16),
@@ -342,13 +343,13 @@ g_white <-
   Data %>%
   drop_na(Qwhite) %>%
   filter(., Qwhite == "Q1" | Qwhite == "Q4")%>%
-  ggplot(., aes(change.fullydew.1994.1952, fct_rev(Qwhite), color = Qwhite, fill = Qwhite)) + 
+  ggplot(., aes(change.fullydew.1994.1977, fct_rev(Qwhite), color = Qwhite, fill = Qwhite)) + 
   coord_cartesian(clip = "off") +
   scale_y_discrete(expand = c(.07, .07)) +
   scale_color_manual(values = my_pal, guide = "none") +
   scale_fill_manual(values = my_pal, guide = "none") +
-  labs(x="Change in Percent of Fully Dewatered Wells", y="Percent of White People")+
-  xlim(-25, 30)+
+  labs(x="Change in Percent of Fully Dewatered Wells", y="% of BG that is non-Hispanic White")+
+  xlim(-15, 30)+
   theme_bw()+
   ggridges::geom_density_ridges(na.rm=T,
     alpha = .7
@@ -358,13 +359,13 @@ g_white <-
 g_ed <- 
   Data %>%
   filter(., Qed == "Q1" | Qed == "Q4")%>%
-  ggplot(., aes(change.fullydew.1994.1952, fct_rev(Qed), color = Qed, fill = Qed)) + 
+  ggplot(., aes(change.fullydew.1994.1977, fct_rev(Qed), color = Qed, fill = Qed)) + 
   coord_cartesian(clip = "off") +
   scale_y_discrete(expand = c(.07, .07)) +
   scale_color_manual(values = my_pal, guide = "none") +
   scale_fill_manual(values = my_pal, guide = "none") +
-  labs(x="Change in Percent of Fully Dewatered Wells", y="Percent of People with HS Diploma")+
-  xlim(-25, 30)+
+  labs(x="Change in Percent of Fully Dewatered Wells", y="% of BG with a HS diploma")+
+  xlim(-15, 30)+
   theme_bw()+
   ggridges::geom_density_ridges(na.rm=T,
                                 alpha = .7
@@ -374,13 +375,13 @@ g_mhi <-
   Data %>%
   drop_na(QMHI) %>%
   filter(., QMHI == "Q1" | QMHI == "Q4")%>%
-  ggplot(., aes(change.fullydew.1994.1952, fct_rev(QMHI), color = QMHI, fill = QMHI)) + 
+  ggplot(., aes(change.fullydew.1994.1977, fct_rev(QMHI), color = QMHI, fill = QMHI)) + 
   coord_cartesian(clip = "off") +
   scale_y_discrete(expand = c(.07, .07)) +
   scale_color_manual(values = my_pal, guide = "none") +
   scale_fill_manual(values = my_pal, guide = "none") +
-  labs(x="Change in Percent of Fully Dewatered Wells", y="Percent of People with Income Above MHI")+
-  xlim(-25, 30)+
+  labs(x="Change in Percent of Fully Dewatered Wells", y="BG Median Household Income (MHI)")+
+  xlim(-15, 30)+
   theme_bw()+
   ggridges::geom_density_ridges(na.rm=T,
                                 alpha = .7
@@ -390,15 +391,17 @@ g_own <-
   Data %>%
   drop_na(Qown) %>%
   filter(., Qown == "Q1" | Qown == "Q4")%>%
-  ggplot(., aes(change.fullydew.1994.1952, fct_rev(Qown), color = Qown, fill = Qown)) + 
+  ggplot(., aes(change.fullydew.1994.1977, fct_rev(Qown), color = Qown, fill = Qown)) + 
   coord_cartesian(clip = "off") +
   scale_y_discrete(expand = c(.07, .07)) +
   scale_color_manual(values = my_pal, guide = "none") +
   scale_fill_manual(values = my_pal, guide = "none") +
-  labs(x="Change in Percent of Fully Dewatered Wells", y="Percent of People who Own Their Home")+
-  xlim(-25, 30)+
+  labs(x="Change in Percent of Fully Dewatered Wells", y="% of BG households that are owner occupied")+
+  xlim(-15, 30)+
   theme_bw()+
   ggridges::geom_density_ridges(na.rm=T,
                                 alpha = .7
   )
-a <- plot_grid(g_own, g_mhi,g_white,g_ed, labels = c("","","", ""))
+a <- ggdraw(add_sub(plot_grid(g_own, g_mhi,g_white,g_ed, labels = c("","","", "")), "*Note: BG = Block Group", size=10))
+a
+# Suggested labels of this fig: ; ; ; 

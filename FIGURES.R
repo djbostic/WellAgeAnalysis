@@ -1,7 +1,7 @@
 # SCRIPT FOR FIGURES #
 library(cowplot)
 #### LOAD ANALYSIS IMAGE ####
-load("Data/analysis_session_05212024.RData")
+load("analysis_session_05212024.RData")
 
 red3 <- "#9b2226"
 red2 <- "#ae2012"
@@ -117,7 +117,7 @@ plotdata$cat.change.fully.1994.1977 <- ifelse(plotdata$change.fullydew.1994.1977
 library(RColorBrewer)
 myColors <- brewer.pal(6,"Spectral")
 names(myColors) <- levels(plotdata$change.fullydew.1994.1900)
-colScale <- 
+#colScale <- 
 
 f9400 <- ggplot()+
   geom_sf(data=basins, fill=NA, col="black")+
@@ -140,4 +140,4 @@ f9477 <- ggplot()+
 
 a <- plot_grid(f9400, f9452,f9477, labels = c("","",""), ncol=3)
 #ggsave(a, "Figure3.png")
-
+a
